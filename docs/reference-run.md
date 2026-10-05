@@ -38,6 +38,11 @@ No adjustment or model reselection was performed using those holdout results.
   separation, exclusion of target columns, XGBoost evaluation history and saved-model inference.
 * The one-page coaching PDF was rendered and visually inspected.
 
+The subsequent Bothra-style refactor was rerun through every stage. Training/test feature values,
+all 34,972 exported prediction rows, holdout metrics and coaching counts exactly matched the
+original run. The rendered coaching PDF also matched the original image. The staged source layout
+and RDS locations changed; model settings and predictions did not.
+
 ## Coaching evidence
 
 Game `01103572`, home catcher `zkrGGa8L`: 77 called pitches received. The defense challenged

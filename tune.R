@@ -1,17 +1,38 @@
-clip_prob <- function(p) pmin(1 - 1e-6, pmax(1e-6, as.numeric(p)))
-log_loss <- function(y, p) { p <- clip_prob(p); -mean(y * log(p) + (1-y) * log1p(-p)) }
-metrics <- function(y, p) {
-  p <- clip_prob(p)
-  c(log_loss = log_loss(y, p), brier = mean((p-y)^2), observed_rate = mean(y), predicted_rate = mean(p))
-}
+# =============================================================
+# tune.R
+#
+# Compare constant, ridge and boosted-tree models on tuning games.
+# Freeze each model choice before scoring the holdout.
+# Saved validation models are also used for the coaching game.
+# =============================================================
 
-predict_candidate <- function(model, x) {
-  if (model$type == "constant") return(rep(model$p, nrow(x)))
-  if (model$type == "call_mapping") return(ifelse(as.numeric(x[, "called_strike"]) == 1, model$strike_p, model$ball_p))
-  if (model$type == "ridge") return(clip_prob(predict(model$fit, newx = x, s = model$lambda, type = "response")))
-  clip_prob(predict(model$fit, xgboost::xgb.DMatrix(x, nthread = 2)))
-}
+library(tidyverse)
+library(glmnet)
+library(xgboost)
 
+args <- commandArgs(trailingOnly = TRUE)
+data_dir <- if (length(args) >= 1) args[1] else "Data"
+out <- if (length(args) >= 2) args[2] else "results"
+dataset_dir <- file.path(data_dir, "datasets")
+
+dir.create(dataset_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(out, recursive = TRUE, showWarnings = FALSE)
+source("functions.R")
+
+pitch_split <- readRDS(file.path(dataset_dir, "pitch_split.rds"))
+pitch_split_feat <- readRDS(file.path(dataset_dir, "pitch_split_feat.rds"))
+
+train <- pitch_split$train
+train_feat <- pitch_split_feat$train
+split <- pitch_split$split
+SEED <- pitch_split$seed
+
+stopifnot(identical(train$play_id, pitch_split_feat$train_play_id))
+stopifnot(identical(split, pitch_split_feat$split))
+
+# -------------------------------------------------------------
+# 0. Shared tuning calculation
+# -------------------------------------------------------------
 fit_task <- function(features, y, split, task, out, seed = 2027, max_rounds = 700L) {
   valid <- !is.na(y)
   a <- which(split == "fit" & valid)
@@ -53,7 +74,7 @@ fit_task <- function(features, y, split, task, out, seed = 2027, max_rounds = 70
     write.csv(history, file.path(out, paste0(task, "_depth", depth, "_learning_curve.csv")), row.names = FALSE)
   }
   tune_metrics <- do.call(rbind, lapply(names(candidates), function(nm) {
-    data.frame(task = task, model = nm, t(metrics(y[b], predict_candidate(candidates[[nm]], x[b, ]))))
+    data.frame(task = task, model = nm, t(probability_metrics(y[b], predict_candidate(candidates[[nm]], x[b, ]))))
   }))
   selected_name <- tune_metrics$model[which.min(tune_metrics$log_loss)]
   selected <- candidates[[selected_name]]
@@ -61,7 +82,7 @@ fit_task <- function(features, y, split, task, out, seed = 2027, max_rounds = 70
   write.csv(tuning[[1]], file.path(out, paste0(task, "_ridge_tuning.csv")), row.names = FALSE)
   # Holdout is scored only after the model choice is frozen on tune games.
   holdout <- do.call(rbind, lapply(c("constant", selected_name), function(nm) {
-    data.frame(task = task, model = nm, t(metrics(y[h], predict_candidate(candidates[[nm]], x[h, ]))))
+    data.frame(task = task, model = nm, t(probability_metrics(y[h], predict_candidate(candidates[[nm]], x[h, ]))))
   }))
   holdout <- unique(holdout)
   hp <- predict_candidate(selected, x[h, ])
@@ -70,46 +91,61 @@ fit_task <- function(features, y, split, task, out, seed = 2027, max_rounds = 70
        tune = tune_metrics, validation_model = selected)
 }
 
-refit_task <- function(features, y, selected) {
-  keep <- which(!is.na(y))
-  encoder <- fit_encoder(features[keep, , drop = FALSE])
-  x <- encode_features(features[keep, , drop = FALSE], encoder)
-  model <- selected
-  if (model$type == "constant") model$p <- mean(y[keep])
-  if (model$type == "call_mapping") {
-    z <- features$called_strike[keep]
-    model$strike_p <- (sum(y[keep][z == 1]) + 1) / (sum(z == 1) + 2)
-    model$ball_p <- (sum(y[keep][z == 0]) + 1) / (sum(z == 0) + 2)
-  }
-  if (model$type == "ridge") model$fit <- glmnet::glmnet(x, y[keep], family = "binomial", alpha = 0,
-                                                         lambda = model$lambda, standardize = TRUE)
-  if (model$type == "xgb") model$fit <- xgboost::xgb.train(model$params,
-    xgboost::xgb.DMatrix(x, label = y[keep], nthread = 2), nrounds = model$rounds, verbose = 0)
-  list(model = model, encoder = encoder)
-}
 
-calibration_table <- function(y, p, task) {
-  # Fixed probability bins avoid arbitrary splitting of equal predictions.
-  breaks <- if (task == "challenge") c(0, .005, .01, .02, .05, .1, .2, .4, .6, .8, 1) else seq(0, 1, .1)
-  bin <- cut(p, breaks = breaks, include.lowest = TRUE)
-  do.call(rbind, lapply(levels(bin), function(z) {
-    k <- which(bin == z)
-    if (!length(k)) return(NULL)
-    data.frame(task = task, bin = z, n = length(k), predicted = mean(p[k]), observed = mean(y[k]))
-  }))
-}
+# -------------------------------------------------------------
+# (A) Any challenge
+# -------------------------------------------------------------
+tune_challenge <- fit_task(
+  features = train_feat,
+  y = train$is_challenge,
+  split = split,
+  task = "challenge",
+  out = out,
+  seed = SEED
+)
 
-cluster_bootstrap <- function(y, p, baseline, games, seed = 2027, reps = 500) {
-  set.seed(seed)
-  p <- clip_prob(p); baseline <- clip_prob(baseline)
-  l <- -(y * log(p) + (1-y) * log1p(-p))
-  b <- -(y * log(baseline) + (1-y) * log1p(-baseline))
-  totals <- aggregate(cbind(loss = l, baseline_loss = b, n = rep(1, length(y))), list(game = games), sum)
-  draws <- replicate(reps, {
-    ix <- sample.int(nrow(totals), nrow(totals), replace = TRUE)
-    c(log_loss = sum(totals$loss[ix]) / sum(totals$n[ix]),
-      improvement = sum(totals$baseline_loss[ix] - totals$loss[ix]) / sum(totals$n[ix]))
-  })
-  data.frame(metric = rownames(draws), lower = apply(draws, 1, quantile, .025),
-             upper = apply(draws, 1, quantile, .975))
-}
+saveRDS(tune_challenge, file.path(dataset_dir, "model_challenge_validation.rds"))
+
+# -------------------------------------------------------------
+# (B) Success given a challenge
+# -------------------------------------------------------------
+tune_success <- fit_task(
+  features = train_feat,
+  y = train$is_success,
+  split = split,
+  task = "success",
+  out = out,
+  seed = SEED
+)
+
+saveRDS(tune_success, file.path(dataset_dir, "model_success_validation.rds"))
+
+# -------------------------------------------------------------
+# (C) Challenging team
+# -------------------------------------------------------------
+tune_source <- fit_task(
+  features = train_feat,
+  y = ifelse(is.na(train$challenge_source), NA_real_,
+         as.numeric(train$challenge_source == "hitting_team")),
+  split = split,
+  task = "source",
+  out = out,
+  seed = SEED
+)
+
+saveRDS(tune_source, file.path(dataset_dir, "model_source_validation.rds"))
+
+# -------------------------------------------------------------
+# DIAGNOSTICS
+# -------------------------------------------------------------
+tuning_results <- bind_rows(
+  tune_challenge$tune,
+  tune_success$tune,
+  tune_source$tune
+)
+
+print(tuning_results)
+cat("\nSelected challenge model:", tune_challenge$selected_name, "\n")
+cat("Selected success model:  ", tune_success$selected_name, "\n")
+cat("Selected source model:   ", tune_source$selected_name, "\n")
+cat("\nSaved model_challenge_validation, model_success_validation and model_source_validation.\n")

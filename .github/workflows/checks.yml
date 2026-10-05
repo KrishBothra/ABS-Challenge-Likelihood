@@ -13,6 +13,6 @@ jobs:
           use-public-rspm: true
       - name: Install test dependencies
         shell: Rscript {0}
-        run: install.packages(c('Matrix', 'xgboost'), repos = 'https://cloud.r-project.org')
+        run: install.packages(c('Matrix', 'xgboost', 'dplyr'), repos = 'https://cloud.r-project.org')
       - name: Run targeted checks
         run: Rscript tests/run_tests.R

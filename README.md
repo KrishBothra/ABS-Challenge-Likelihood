@@ -10,11 +10,35 @@ the challenge succeeds. It also produces a factual coaching review for the home 
 Open `Challenge_Likelihood.Rproj`, or use a terminal from this directory:
 
 ```sh
-Rscript scripts/install_dependencies.R
+Rscript Setup.R
 Rscript tests/run_tests.R
-Rscript Model.R Data results
-Rscript scripts/render_coaching_pdf.R results
+Rscript Run_All.R Data results
 ```
+
+The layout follows the stage-based scripts in
+[`Teamworks_CMSAC_2026/Bothra`](https://github.com/KrishBothra/Teamworks_CMSAC_2026/tree/main/Bothra):
+libraries at the top, native `|>` pipelines, named sections, explicit model blocks, RDS handoffs,
+and console diagnostics at the end. Each stage can also be run separately from the project root:
+
+| Run order | Script | Main saved output |
+|---|---|---|
+| 1 | `Data_Wrangling.R` | `Data/datasets/pitch_split.rds` |
+| 2 | `features.R` | `Data/datasets/pitch_split_feat.rds` |
+| 3 | `tune.R` | `Data/datasets/model_*_validation.rds` |
+| 4 | `Model.R` | `Data/datasets/model_challenge.rds`, `model_success.rds`, `model_source.rds` |
+| 5 | `Predict.R` | `results/data-test-predictions.csv` |
+| 6 | `Diagnostics.R` | Holdout tables, calibration and feature importance |
+| 7 | `Catcher_Report.R` | Coaching evidence, HTML and one-page PDF |
+
+For example, `Rscript features.R Data results` rebuilds just the feature tables after wrangling.
+In RStudio, open the project and source these scripts in order. All stages accept the same optional
+data/output directory arguments; intermediates are stored under the selected data directory's
+`datasets` folder. `functions.R` contains shared input, encoding and probability calculations;
+it has no data-reading or training side effects. `features.R`, `tune.R` and `Model.R` own their
+respective feature, tuning and fitting code.
+
+The existing native XGBoost fitting API is retained so the organization/style change does not
+change model behavior. No tidymodels recipe conversion or new model search is introduced.
 
 R 4.5.2 and XGBoost 3.2.0.1 were used for development. The code uses the XGBoost 3.x `evals` API.
 Exact package versions, input MD5 checksums, selected models and random seed are written to
@@ -31,8 +55,11 @@ zero-padded to eight digits. Numeric formatting may differ from Excel, but value
 To score again without retraining:
 
 ```sh
-Rscript scripts/predict.R Data/data-test.xlsx results/models predictions.csv
+Rscript Predict.R Data results
 ```
+
+This reads the saved feature table and final models from `Data/datasets`; it does not rerun tuning.
+If input files change, rebuild the preceding stages to keep the saved tables and models consistent.
 
 ## Data and targets
 
@@ -94,9 +121,9 @@ modeling and properly nested calibration are future experiments rather than assu
 * `holdout_bootstrap_intervals.csv`: clustered uncertainty intervals.
 * `coaching_summary.csv`, `coaching_challenges.csv`, `coaching_game_pitches.csv`:
   factual evidence for the target game.
-* `catcher_report.html`: printable one-page coaching review with `coaching_pitch_map.png`.
+* `catcher_report.html` and `catcher_report.pdf`: one-page coaching review with `coaching_pitch_map.png`.
 * `coaching_review_candidates.csv`: five unchallenged balls for video review, not confirmed errors.
-* `models/`: final models/encoders and separately saved validation models.
+* `Data/datasets/`: intermediate tables, final models/encoders and validation models (outside `results`).
 
 The home catcher is identified from top halves of innings. A pitching-team challenge can be made
 by the catcher or pitcher; the data does not identify the initiator. The report never assigns all

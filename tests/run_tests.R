@@ -1,6 +1,13 @@
-source("R/data.R")
-source("R/features.R")
-source("R/models.R")
+source("functions.R")
+
+# Load the feature function without running the stage's file I/O.
+feature_expressions <- parse("features.R")
+for (expression in feature_expressions) {
+  if (is.call(expression) && identical(expression[[1]], as.name("<-")) &&
+      identical(expression[[2]], as.name("make_features"))) {
+    eval(expression)
+  }
+}
 
 stopifnot(abs(log_loss(c(0, 1), c(.5, .5)) - log(2)) < 1e-10)
 stopifnot(is.finite(log_loss(c(0, 1), c(1, 0))))
