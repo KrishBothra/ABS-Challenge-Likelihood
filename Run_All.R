@@ -12,8 +12,8 @@ stages <- c(
   "tune.R",
   "Model.R",
   "Predict.R",
-  "Diagnostics.R",
-  "Catcher_Report.R"
+  "Diagnostics.R"
+  #, "Catcher_Report.R"
 )
 
 for (stage in stages) {
