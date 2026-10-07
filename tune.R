@@ -18,6 +18,7 @@ dataset_dir <- file.path(data_dir, "datasets")
 dir.create(dataset_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(out, recursive = TRUE, showWarnings = FALSE)
 source("functions.R")
+csv_dir <- prepare_csv_dir(out, if (length(args) >= 3) args[3] else file.path(dirname(out), "csv"))
 
 pitch_split <- readRDS(file.path(dataset_dir, "pitch_split.rds"))
 pitch_split_feat <- readRDS(file.path(dataset_dir, "pitch_split_feat.rds"))
@@ -71,15 +72,15 @@ fit_task <- function(features, y, split, task, out, seed = 2027, max_rounds = 70
     fit <- xgboost::xgb.train(params, dtrain, nrounds = rounds, verbose = 0)
     candidates[[paste0("xgb_depth", depth)]] <- list(type = "xgb", fit = fit, params = params, rounds = rounds)
     history$model <- paste0("xgb_depth", depth)
-    write.csv(history, file.path(out, paste0(task, "_depth", depth, "_learning_curve.csv")), row.names = FALSE)
+    write.csv(history, file.path(csv_dir, paste0(task, "_depth", depth, "_learning_curve.csv")), row.names = FALSE)
   }
   tune_metrics <- do.call(rbind, lapply(names(candidates), function(nm) {
     data.frame(task = task, model = nm, t(probability_metrics(y[b], predict_candidate(candidates[[nm]], x[b, ]))))
   }))
   selected_name <- tune_metrics$model[which.min(tune_metrics$log_loss)]
   selected <- candidates[[selected_name]]
-  write.csv(tune_metrics, file.path(out, paste0(task, "_tuning.csv")), row.names = FALSE)
-  write.csv(tuning[[1]], file.path(out, paste0(task, "_ridge_tuning.csv")), row.names = FALSE)
+  write.csv(tune_metrics, file.path(csv_dir, paste0(task, "_tuning.csv")), row.names = FALSE)
+  write.csv(tuning[[1]], file.path(csv_dir, paste0(task, "_ridge_tuning.csv")), row.names = FALSE)
   # Holdout is scored only after the model choice is frozen on tune games.
   holdout <- do.call(rbind, lapply(c("constant", selected_name), function(nm) {
     data.frame(task = task, model = nm, t(probability_metrics(y[h], predict_candidate(candidates[[nm]], x[h, ]))))
@@ -149,3 +150,4 @@ cat("\nSelected challenge model:", tune_challenge$selected_name, "\n")
 cat("Selected success model:  ", tune_success$selected_name, "\n")
 cat("Selected source model:   ", tune_source$selected_name, "\n")
 cat("\nSaved model_challenge_validation, model_success_validation and model_source_validation.\n")
+

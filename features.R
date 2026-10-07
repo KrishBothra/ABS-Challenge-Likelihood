@@ -3,7 +3,7 @@
 #
 # Inputs: Data/datasets/pitch_split.rds
 # Output: Data/datasets/pitch_split_feat.rds
-# Pitch location, original call and game context only.
+# One coarse location category, original call and game context.
 # =============================================================
 
 library(tidyverse)
@@ -16,6 +16,7 @@ dataset_dir <- file.path(data_dir, "datasets")
 dir.create(dataset_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(out, recursive = TRUE, showWarnings = FALSE)
 source("functions.R")
+csv_dir <- prepare_csv_dir(out, if (length(args) >= 3) args[3] else file.path(dirname(out), "csv"))
 
 # -------------------------------------------------------------
 # 1. Load the cleaned tables
@@ -29,31 +30,36 @@ make_features <- function(df) {
     # count and game situation
     "balls", "strikes", "outs", "inning", "pre_score_home", "pre_score_away",
     # pitch movement and release
-    "velocity", "break_x", "break_z", "release_x", "release_z",
-    "release_angle_x", "release_angle_z", "extension",
-    # location and sequence
-    "plate_x", "plate_z", "sz_top", "sz_bot", "pa_of_game", "pitch_of_pa"
+    "velocity", "break_x", "break_z", "extension",
+    # sequence
+    "pa_of_game", "pitch_of_pa"
   )
 
-  # Geometry is a feature proxy, not an exact reconstruction of ABS.
+  # Fixed before fitting: the entire ball clears the zone edge by 4 inches.
+  # Raw locations are used here only; no coordinates or distances reach the model.
   PLATE_HALF_WIDTH <- 8.5 / 12
-  BALL_RADIUS      <- 1.45 / 12
+  BALL_RADIUS <- 1.5 / 12
+  EDGE_CLEARANCE <- 4 / 12
+  CLEAR_DISTANCE <- BALL_RADIUS + EDGE_CLEARANCE
+  valid_location <- is.finite(df$plate_x) & is.finite(df$plate_z) &
+    is.finite(df$sz_top) & is.finite(df$sz_bot) & df$sz_top > df$sz_bot
+  location_category <- case_when(
+    !valid_location ~ "unknown",
+    abs(df$plate_x) <= PLATE_HALF_WIDTH - CLEAR_DISTANCE &
+      df$plate_z >= df$sz_bot + CLEAR_DISTANCE &
+      df$plate_z <= df$sz_top - CLEAR_DISTANCE ~ "obvious_strike",
+    abs(df$plate_x) >= PLATE_HALF_WIDTH + CLEAR_DISTANCE |
+      df$plate_z <= df$sz_bot - CLEAR_DISTANCE |
+      df$plate_z >= df$sz_top + CLEAR_DISTANCE ~ "obvious_ball",
+    TRUE ~ "borderline"
+  )
 
   df |>
     select(all_of(numeric_cols)) |>
     mutate(
       is_top_inning  = as.numeric(df$is_top_inning),
       called_strike  = as.numeric(df$pitch_result == "called_strike"),
-      zone_height    = sz_top - sz_bot,
-      z_normalized   = (plate_z - sz_bot) / zone_height,
-      abs_plate_x    = abs(plate_x),
-      horizontal_margin = PLATE_HALF_WIDTH - abs_plate_x,
-      bottom_margin = plate_z - sz_bot,
-      top_margin    = sz_top - plate_z,
-      zone_margin   = pmin(horizontal_margin, bottom_margin, top_margin),
-      ball_margin   = zone_margin + BALL_RADIUS,
-      call_disagreement = if_else(called_strike == 1, -ball_margin, ball_margin),
-      abs_margin    = abs(ball_margin),
+      location_category = location_category,
       batting_score_diff = if_else(
         df$is_top_inning,
         pre_score_away - pre_score_home,
@@ -88,7 +94,11 @@ feature_cols <- names(train_feat)
 target_cols <- c("is_challenge", "is_success", "challenge_source")
 id_cols     <- c("play_id", "game_id")
 
-stopifnot(!any(c(target_cols, id_cols) %in% feature_cols))
+forbidden_location <- c("plate_x", "plate_z", "sz_top", "sz_bot", "zone_height",
+  "z_normalized", "abs_plate_x", "call_disagreement", "release_x", "release_z",
+  "release_angle_x", "release_angle_z")
+stopifnot(!any(c(target_cols, id_cols, forbidden_location) %in% feature_cols))
+stopifnot(!any(grepl("margin", feature_cols)))
 stopifnot(identical(names(train_feat), names(test_feat)))
 stopifnot(nrow(train_feat) == nrow(train), nrow(test_feat) == nrow(test))
 

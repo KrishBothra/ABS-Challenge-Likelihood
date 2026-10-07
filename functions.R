@@ -131,3 +131,30 @@ cluster_bootstrap <- function(y, p, baseline, games, seed = 2027, reps = 500) {
   data.frame(metric = rownames(draws), lower = apply(draws, 1, quantile, .025),
              upper = apply(draws, 1, quantile, .975))
 }
+
+
+# Keep tabular exports separate from reports and charts. Existing CSVs are moved
+# without overwriting a different file in the destination.
+prepare_csv_dir <- function(out, csv_dir = file.path(dirname(out), "csv")) {
+  dir.create(out, recursive = TRUE, showWarnings = FALSE)
+  dir.create(csv_dir, recursive = TRUE, showWarnings = FALSE)
+  if (normalizePath(out) == normalizePath(csv_dir))
+    stop("CSV directory must be separate from the results directory.")
+  old <- list.files(out, pattern = "\\.csv$", full.names = TRUE, ignore.case = TRUE)
+  destinations <- file.path(csv_dir, basename(old))
+  # Check every collision before moving any files.
+  for (i in seq_along(old)) {
+    if (file.exists(destinations[i]) &&
+        unname(tools::md5sum(old[i])) != unname(tools::md5sum(destinations[i])))
+      stop("CSV migration conflict: ", destinations[i],
+           ". Keep or rename the existing file before rerunning.")
+  }
+  for (i in seq_along(old)) {
+    if (file.exists(destinations[i])) {
+      if (!file.remove(old[i])) stop("Cannot remove duplicate CSV: ", old[i])
+    } else if (!file.rename(old[i], destinations[i])) {
+      stop("Cannot move CSV: ", old[i])
+    }
+  }
+  csv_dir
+}

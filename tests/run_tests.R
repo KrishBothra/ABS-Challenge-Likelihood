@@ -46,3 +46,33 @@ restored <- readRDS(tmp)
 stopifnot(isTRUE(all.equal(predict_candidate(restored, tiny_x), as.numeric(predict(booster, dm)), tolerance = 1e-6)))
 unlink(tmp)
 cat("PASS: XGBoost evaluation history and saved-model inference.\n")
+
+
+# Coarse geometry and output migration regression checks.
+nms <- c("balls", "strikes", "outs", "inning", "pre_score_home", "pre_score_away",
+  "velocity", "break_x", "break_z", "extension", "pa_of_game", "pitch_of_pa")
+d <- as.data.frame(setNames(rep(list(rep(0, 9)), length(nms)), nms))
+d$is_top_inning <- TRUE; d$pitch_result <- "ball"
+for (nm in c("pitcher_hand", "batter_hand", "venue_id", "catcher_id", "umpire_id")) d[[nm]] <- "A"
+d$sz_bot <- 1.5; d$sz_top <- 3.5
+d$plate_x <- c(0, .25-1e-8, .25+1e-8, 14/12-1e-8, 14/12+1e-8, -14/12-1e-8, 0, 0, NA)
+d$plate_z <- c(rep(2.5, 6), 1.5-5.5/12-1e-8, 3.5+5.5/12+1e-8, 2.5)
+f <- make_features(d)
+stopifnot(identical(f$location_category, c("obvious_strike", "obvious_strike", "borderline",
+  "borderline", "obvious_ball", "obvious_ball", "obvious_ball", "obvious_ball", "unknown")))
+stopifnot(!any(grepl("margin|plate_|sz_|release_|disagreement|normalized|zone_height", names(f))))
+d$sz_top[1] <- 1
+stopifnot(make_features(d)$location_category[1] == "unknown")
+root <- tempfile(); dir.create(root)
+out <- file.path(root, "results"); dir.create(out)
+writeLines("x\n1", file.path(out, "a.csv"))
+writeLines("chart", file.path(out, "chart.png"))
+cs <- prepare_csv_dir(out)
+stopifnot(file.exists(file.path(cs, "a.csv")), !file.exists(file.path(out, "a.csv")),
+          file.exists(file.path(out, "chart.png")))
+stopifnot(identical(prepare_csv_dir(out), cs))
+writeLines("x\n2", file.path(out, "a.csv"))
+stopifnot(inherits(try(prepare_csv_dir(out), silent = TRUE), "try-error"))
+stopifnot(readLines(file.path(out, "a.csv"))[2] == "2", readLines(file.path(cs, "a.csv"))[2] == "1")
+unlink(root, recursive = TRUE)
+cat("PASS: whole-ball clearance boundaries, excluded location inputs, safe CSV migration.\n")

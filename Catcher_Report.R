@@ -17,6 +17,7 @@ dataset_dir <- file.path(data_dir, "datasets")
 dir.create(dataset_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(out, recursive = TRUE, showWarnings = FALSE)
 source("functions.R")
+csv_dir <- prepare_csv_dir(out, if (length(args) >= 3) args[3] else file.path(dirname(out), "csv"))
 
 pitch_split <- readRDS(file.path(dataset_dir, "pitch_split.rds"))
 pitch_split_feat <- readRDS(file.path(dataset_dir, "pitch_split_feat.rds"))
@@ -50,16 +51,16 @@ opp <- g$is_challenge == 1 & g$challenge_source == "hitting_team"
 nc <- sum(own)
 wins <- sum(g$is_success[own])
 losses <- nc - wins
-write.csv(g, file.path(out, "coaching_game_pitches.csv"), row.names = FALSE)
+write.csv(g, file.path(csv_dir, "coaching_game_pitches.csv"), row.names = FALSE)
 events <- g[g$is_challenge == 1, c("play_id", "inning", "balls", "strikes", "outs", "pitch_result",
                                   "challenge_source", "is_success", "p_success", "plate_x", "plate_z")]
-write.csv(events, file.path(out, "coaching_challenges.csv"), row.names = FALSE)
+write.csv(events, file.path(csv_dir, "coaching_challenges.csv"), row.names = FALSE)
 # Rank review candidates, without pretending unobserved outcomes are known mistakes.
 review <- g |>
   filter(is_challenge == 0, pitch_result == "ball") |>
   arrange(desc(p_success)) |>
   slice_head(n = 5)
-write.csv(review, file.path(out, "coaching_review_candidates.csv"), row.names = FALSE)
+write.csv(review, file.path(csv_dir, "coaching_review_candidates.csv"), row.names = FALSE)
 g$z_normalized <- (g$plate_z - g$sz_bot) / (g$sz_top - g$sz_bot)
 g$event <- ifelse(g$is_challenge == 0, "Not challenged",
                   ifelse(g$is_success == 1, "Overturned", "Upheld"))
@@ -98,14 +99,14 @@ coaching_summary <- tibble(
   wins = wins,
   losses = losses
 )
-write_csv(coaching_summary, file.path(out, "coaching_summary.csv"))
+write_csv(coaching_summary, file.path(csv_dir, "coaching_summary.csv"))
 
 # -------------------------------------------------------------
 # 2. Print-ready PDF
 # -------------------------------------------------------------
-g <- read.csv(file.path(out, "coaching_game_pitches.csv"), colClasses = c(game_id = "character"))
-s <- read.csv(file.path(out, "coaching_summary.csv"), colClasses = c(game_id = "character"))
-e <- read.csv(file.path(out, "coaching_challenges.csv"))
+g <- read.csv(file.path(csv_dir, "coaching_game_pitches.csv"), colClasses = c(game_id = "character"))
+s <- read.csv(file.path(csv_dir, "coaching_summary.csv"), colClasses = c(game_id = "character"))
+e <- read.csv(file.path(csv_dir, "coaching_challenges.csv"))
 g$z_normalized <- (g$plate_z - g$sz_bot) / (g$sz_top - g$sz_bot)
 g$event <- ifelse(g$is_challenge == 0, "Not challenged", ifelse(g$is_success == 1, "Overturned", "Upheld"))
 p <- ggplot(g, aes(plate_x, z_normalized)) +
@@ -156,3 +157,4 @@ cat("Saved", file.path(out, "catcher_report.pdf"), "\n")
 # DIAGNOSTICS
 # -------------------------------------------------------------
 print(coaching_summary)
+

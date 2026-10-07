@@ -1,4 +1,7 @@
-# Reference run
+# Historical reference run
+
+This documents the original full-location model, not the current four-inch-clearance model.
+See `location-experiments.md` for the current scores and earlier comparisons.
 
 These are machine-evaluation results, not an applicant-authored process explanation.
 Seed: 2027. Data checksums and package versions are recorded in the packaged run manifest.
@@ -57,3 +60,4 @@ prospective validation, the geometry features are approximations, and challenge 
 observed only for pitches that were actually challenged. The coaching review candidates require
 video/context review. The personal explanation and organizational-decision essay remain for the
 applicant to write using the accompanying worksheet.
+

@@ -16,6 +16,7 @@ dataset_dir <- file.path(data_dir, "datasets")
 dir.create(dataset_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(out, recursive = TRUE, showWarnings = FALSE)
 source("functions.R")
+csv_dir <- prepare_csv_dir(out, if (length(args) >= 3) args[3] else file.path(dirname(out), "csv"))
 
 check_packages()
 SEED <- 2027L
@@ -58,18 +59,18 @@ for (d in list(train, test)) {
 stopifnot(all(is.na(test$p_challenge)), all(is.na(test$p_success_g_challenge)), all(is.na(test$challenge_source)))
 mapping <- ifelse(train$pitch_result[ch] == "ball", "pitching_team", "hitting_team")
 exceptions <- train[which(ch)[mapping != train$challenge_source[ch]], , drop = FALSE]
-write.csv(exceptions, file.path(out, "challenge_source_exceptions.csv"), row.names = FALSE)
+write.csv(exceptions, file.path(csv_dir, "challenge_source_exceptions.csv"), row.names = FALSE)
 missing <- do.call(rbind, lapply(c("train", "test"), function(nm) {
   d <- if (nm == "train") train else test
   data.frame(dataset = nm, column = names(d), missing = colSums(is.na(d)), rows = nrow(d))
 }))
-write.csv(missing, file.path(out, "missingness.csv"), row.names = FALSE)
+write.csv(missing, file.path(csv_dir, "missingness.csv"), row.names = FALSE)
 summary <- data.frame(dataset = c("train", "test"), rows = c(nrow(train), nrow(test)),
                       games = c(length(unique(train$game_id)), length(unique(test$game_id))),
                       columns = c(ncol(train), ncol(test)))
-write.csv(summary, file.path(out, "data_summary.csv"), row.names = FALSE)
+write.csv(summary, file.path(csv_dir, "data_summary.csv"), row.names = FALSE)
 write.csv(as.data.frame(table(train$pitch_result, train$challenge_source, useNA = "ifany")),
-          file.path(out, "challenge_source_check.csv"), row.names = FALSE)
+          file.path(csv_dir, "challenge_source_check.csv"), row.names = FALSE)
 
 # -------------------------------------------------------------
 # 3. Game-level split
@@ -83,8 +84,8 @@ split_manifest <- train |>
 split_summary <- split_manifest |>
   count(split, name = "pitches")
 
-write_csv(split_manifest, file.path(out, "split_manifest.csv"))
-write_csv(split_summary, file.path(out, "split_summary.csv"))
+write_csv(split_manifest, file.path(csv_dir, "split_manifest.csv"))
+write_csv(split_summary, file.path(csv_dir, "split_summary.csv"))
 
 # -------------------------------------------------------------
 # 4. Save for the feature step
@@ -112,3 +113,4 @@ print(split_summary)
 cat("\nTrain:", nrow(train), "| Test:", nrow(test), "\n")
 cat("Unusual challenge-source labels retained:", nrow(exceptions), "\n")
 cat("Saved pitch_split.rds.\n")
+

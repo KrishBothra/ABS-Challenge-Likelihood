@@ -10,3 +10,5 @@ renv/library/
 renv/staging/
 
 Data/datasets/
+
+csv/

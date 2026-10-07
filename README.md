@@ -26,9 +26,10 @@ and console diagnostics at the end. Each stage can also be run separately from t
 | 2 | `features.R` | `Data/datasets/pitch_split_feat.rds` |
 | 3 | `tune.R` | `Data/datasets/model_*_validation.rds` |
 | 4 | `Model.R` | `Data/datasets/model_challenge.rds`, `model_success.rds`, `model_source.rds` |
-| 5 | `Predict.R` | `results/data-test-predictions.csv` |
+| 5 | `Predict.R` | `csv/data-test-predictions.csv` |
 | 6 | `Diagnostics.R` | Holdout tables, calibration and feature importance |
-| 7 | `Catcher_Report.R` | Coaching evidence, HTML and one-page PDF |
+| 7 | `Variable_Importance.R` | All-feature VIP chart in `results/` |
+| Optional | `Catcher_Report.R` | Coaching evidence in `csv/`, HTML and PDF in `results/` |
 
 For example, `Rscript features.R Data results` rebuilds just the feature tables after wrangling.
 In RStudio, open the project and source these scripts in order. All stages accept the same optional
@@ -48,7 +49,7 @@ versions, use `renv::restore()` with the included `renv.lock`.
 Inputs may be CSV or XLSX (`data-train` and `data-test`). CSV takes precedence if both exist.
 The source data is never overwritten. Parsed data is cached by input checksum in `.cache/data`.
 
-The main output is `results/data-test-predictions.csv`: all original test columns and rows, with
+The main output is `csv/data-test-predictions.csv`: all original test columns and rows, with
 the three requested prediction columns populated. IDs are normalized to strings; game IDs are
 zero-padded to eight digits. Numeric formatting may differ from Excel, but values are preserved.
 
@@ -92,14 +93,21 @@ is capped at 700 rounds with 50-round early stopping. The winning candidate is c
 looking at the holdout. Holdout scores therefore describe a model fitted on the fitting games;
 the final submission models are subsequently refitted on all available labeled rows.
 
-Features include pitch measurements, count, inning, score difference, batting side, and distances
-to strike-zone boundaries. The nominal 17-inch plate and 1.45-inch baseball-radius expansion are
-geometry proxies; raw coordinates and the supplied batter bounds remain available to the model.
-This is not an exact reconstruction of official ABS geometry, including its measurement plane
-and treatment of corners. Catcher, umpire, venue, handedness and count are one-hot encoded.
-Pitcher/batter IDs are omitted in this first version. Missing numerical inputs use fitting-set
-medians and missing indicators. Unseen categories have an explicit fallback. No outcome,
-game ID, play ID or future-pitch information is a model feature.
+The 26 features include speed, movement, extension, original call and game context.
+The only explicit pitch-location input is `location_category`: obvious strike,
+obvious ball, borderline or unknown. An obvious pitch requires 4 inches of clearance
+beyond the entire ball, using a 1.5-inch radius: 5.5 inches of center clearance.
+Obvious balls are beyond at least one supplied zone edge by that amount (horizontal
+cutoffs +/-14 inches, or 28-inch outer width). Obvious strikes clear every edge inward
+by that amount (horizontal cutoffs +/-3 inches, or 6-inch inner width). The same rule
+applies to supplied top and bottom bounds. This conservative reference geometry is
+not an exact ABS ruling. Missing/invalid locations are unknown. The threshold is fixed.
+
+Coordinates and zone bounds are used only to form this category. All raw location,
+zone dimension, margin, normalized-location, call_disagreement and release-coordinate/
+angle predictors are excluded. Catcher, umpire, venue, handedness and count remain.
+Pitcher/batter IDs, outcome fields and game/play IDs are excluded. Numeric missing
+values use fitting-set medians with missing indicators; unseen categories have a fallback.
 
 There is no oversampling or class weighting: the objective is calibrated probabilities on the
 natural event distribution. Evaluation includes log loss, Brier score, calibration bins and
@@ -143,3 +151,22 @@ The assignment PDF and data dictionary are provided in this repository. The assi
 [MLB's ABS rules overview](https://www.mlb.com/news/abs-challenge-system-mlb-2026).
 The data covers Minor League games; MLB 2026 rules should not be assumed to identify the historical
 challenge allotment or strike-zone geometry for this dataset without confirmation.
+
+
+## Clean output folders
+
+- `csv/`: every CSV export, including predictions, metrics, tuning, importance and coaching evidence.
+- `results/`: catcher reports, model charts, run manifest and session information.
+- `Data/datasets/`: saved feature tables, fitted models and encoders.
+
+Run `Rscript Run_All.R Data results csv` to choose all three directories explicitly.
+If the third argument is omitted, the CSV folder is a sibling of the results folder.
+Each stage safely migrates CSVs directly inside an existing results folder; it stops
+rather than overwriting a different destination file. Other files are left intact.
+The catcher report remains optional; run `Rscript Catcher_Report.R Data results csv`.
+The VIP is now included in Run_All.R. Rerun from features.R through tuning/refitting
+when switching feature versions; do not reuse old fitted models with new features.
+
+Latest holdout log loss: challenge 0.09995204, success 0.67680934, source 0.01748712.
+See `docs/location-experiments.md` for prior experiments. Those comparisons reuse
+the same holdout and are exploratory, not an untouched final test.

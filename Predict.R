@@ -16,6 +16,7 @@ dataset_dir <- file.path(data_dir, "datasets")
 dir.create(dataset_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(out, recursive = TRUE, showWarnings = FALSE)
 source("functions.R")
+csv_dir <- prepare_csv_dir(out, if (length(args) >= 3) args[3] else file.path(dirname(out), "csv"))
 
 pitch_split <- readRDS(file.path(dataset_dir, "pitch_split.rds"))
 pitch_split_feat <- readRDS(file.path(dataset_dir, "pitch_split_feat.rds"))
@@ -68,13 +69,13 @@ for (name in c("p_challenge", "p_success_g_challenge")) {
 unchanged <- setdiff(names(test), c("p_challenge", "p_success_g_challenge", "challenge_source"))
 stopifnot(identical(submission[unchanged], test[unchanged]))
 
-data.table::fwrite(submission, file.path(out, "data-test-predictions.csv"), na = "NA")
+data.table::fwrite(submission, file.path(csv_dir, "data-test-predictions.csv"), na = "NA")
 
 source_probabilities <- test |>
   select(play_id) |>
   mutate(p_hitting_team_g_challenge = pred_source)
 
-data.table::fwrite(source_probabilities, file.path(out, "source_probabilities.csv"))
+data.table::fwrite(source_probabilities, file.path(csv_dir, "source_probabilities.csv"))
 
 # -------------------------------------------------------------
 # 4. Record the run
@@ -120,3 +121,4 @@ submission |>
   print()
 
 cat("\nSaved data-test-predictions.csv in original test-row order.\n")
+

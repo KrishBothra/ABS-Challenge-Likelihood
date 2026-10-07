@@ -16,6 +16,7 @@ dataset_dir <- file.path(data_dir, "datasets")
 dir.create(dataset_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(out, recursive = TRUE, showWarnings = FALSE)
 source("functions.R")
+csv_dir <- prepare_csv_dir(out, if (length(args) >= 3) args[3] else file.path(dirname(out), "csv"))
 
 pitch_split <- readRDS(file.path(dataset_dir, "pitch_split.rds"))
 train <- pitch_split$train
@@ -31,7 +32,7 @@ results <- list(
 # Holdout checks and plots
 # -------------------------------------------------------------
 all_metrics <- do.call(rbind, lapply(results, `[[`, "holdout"))
-write.csv(all_metrics, file.path(out, "holdout_metrics.csv"), row.names = FALSE)
+write.csv(all_metrics, file.path(csv_dir, "holdout_metrics.csv"), row.names = FALSE)
 all_cal <- list()
 all_pred <- list()
 ci <- list()
@@ -48,9 +49,9 @@ for (task in names(results)) {
                                                    rep(baseline, length(ix)), train$game_id[ix], seed))
 }
 cal <- do.call(rbind, all_cal)
-write.csv(cal, file.path(out, "calibration.csv"), row.names = FALSE)
-write.csv(do.call(rbind, all_pred), file.path(out, "holdout_predictions.csv"), row.names = FALSE)
-write.csv(do.call(rbind, ci), file.path(out, "holdout_bootstrap_intervals.csv"), row.names = FALSE)
+write.csv(cal, file.path(csv_dir, "calibration.csv"), row.names = FALSE)
+write.csv(do.call(rbind, all_pred), file.path(csv_dir, "holdout_predictions.csv"), row.names = FALSE)
+write.csv(do.call(rbind, ci), file.path(csv_dir, "holdout_bootstrap_intervals.csv"), row.names = FALSE)
 p <- ggplot(cal, aes(predicted, observed)) +
   geom_abline(slope = 1, intercept = 0, linetype = 2, color = "grey60") +
   geom_point(aes(size = n), color = "#007F7A") +
@@ -62,7 +63,7 @@ for (task in names(results)) {
   r <- results[[task]]
   if (r$selected$type == "xgb") {
     importance <- as.data.frame(xgboost::xgb.importance(model = r$selected$fit))
-    write.csv(importance, file.path(out, paste0(task, "_importance.csv")), row.names = FALSE)
+    write.csv(importance, file.path(csv_dir, paste0(task, "_importance.csv")), row.names = FALSE)
   }
 }
 
@@ -71,3 +72,4 @@ for (task in names(results)) {
 # -------------------------------------------------------------
 print(all_metrics)
 cat("\nSaved holdout metrics and calibration plots.\n")
+

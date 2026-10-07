@@ -2,7 +2,7 @@
 # Run_All.R
 #
 # Run the stage scripts in order.
-# Rscript Run_All.R [data_directory] [output_directory]
+# Rscript Run_All.R [data_directory] [output_directory] [csv_directory]
 # =============================================================
 
 
@@ -12,7 +12,8 @@ stages <- c(
   "tune.R",
   "Model.R",
   "Predict.R",
-  "Diagnostics.R"
+  "Diagnostics.R",
+  "Variable_Importance.R"
   #, "Catcher_Report.R"
 )
 
@@ -25,3 +26,4 @@ for (stage in stages) {
 }
 
 cat("\nAll stages complete.\n")
+

@@ -18,6 +18,7 @@ dataset_dir <- file.path(data_dir, "datasets")
 dir.create(dataset_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(out, recursive = TRUE, showWarnings = FALSE)
 source("functions.R")
+csv_dir <- prepare_csv_dir(out, if (length(args) >= 3) args[3] else file.path(dirname(out), "csv"))
 
 pitch_split <- readRDS(file.path(dataset_dir, "pitch_split.rds"))
 pitch_split_feat <- readRDS(file.path(dataset_dir, "pitch_split_feat.rds"))
@@ -107,3 +108,4 @@ cat("\nHeld-out results for the validation models (before the full-data refit):\
 print(holdout_results)
 cat("\nSaved model_challenge.rds, model_success.rds and model_source.rds.\n")
 cat("Next: Predict.R to fill the test predictions.\n")
+
