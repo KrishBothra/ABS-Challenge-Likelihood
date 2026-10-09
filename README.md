@@ -170,3 +170,45 @@ when switching feature versions; do not reuse old fitted models with new feature
 Latest holdout log loss: challenge 0.09995204, success 0.67680934, source 0.01748712.
 See `docs/location-experiments.md` for prior experiments. Those comparisons reuse
 the same holdout and are exploratory, not an untouched final test.
+
+## Coach-facing postgame report
+
+Run `Rscript Catcher_Report.R Data results csv` after tuning and building features.
+The report remains optional in `Run_All.R`. It produces a one-page letter PDF and
+matching HTML with five sections: executive summary, challenge metrics, two zone maps,
+context-prioritized decision review, and coaching adjustments. Figures and reports
+stay in `results/`; evidence, decision logs and umpire-bin tables stay in `csv/`.
+
+Defensive team challenges are distinguished from catcher-specific attribution (not
+available). Remaining challenges and run value/WPA are marked unavailable because
+allotment rules/history and baserunner/expectancy inputs are not supplied. Pitch type,
+framing interference, exact ABS geometry and midpoint tracking are not established.
+
+Numbered review candidates are unchallenged balls in the model's borderline or
+obvious-strike category. Candidates must have at least one context flag: 7th inning
+or later within two runs, two outs, or two strikes. They are ordered by number of
+flags, then estimated reversal probability. This is a video queue, not a leverage
+index or proof of a missed strike. Actual challenges are labeled A/B; upheld calls
+are not automatically described as wasted. All pitch IDs remain in the CSV evidence.
+
+The umpire map bins calls from both halves of the selected game in 6-inch horizontal
+and 6-inch vertical cells, showing observed strike rates only with at least
+five pitches per cell. Sparse cells are blank. It is descriptive, not an inferred
+true zone. The current success model has little gain over its constant baseline;
+the report shows its actual saved holdout score and avoids strong recommendations.
+
+
+### To-scale pitch graphics
+
+The report uses the user-supplied Pitchgrader reference: 17-inch physical width,
+19.76-42.61-inch height bounds, and a radius-expanded center envelope of 19.94 inches
+wide and 18.29-44.08 inches high. Dashed lines show the physical reference and solid
+lines show the expanded envelope. The expanded envelope already includes the radius;
+do not add it again. This universal reference is not asserted to be the game's exact ABS zone.
+
+Every pitch is a polygon with a 2.94-inch diameter in raw physical coordinates.
+Equal horizontal/vertical axis scales preserve round balls and true relative size
+when the figure is resized. White circles are called balls; blue circles are called
+strikes. Highlighted rims indicate actual overturns (green), upheld calls (red) or
+review candidates (gold). The model features, batter-specific bounds used by the
+coarse category, 4-inch-clearance rule and fitted predictions are unchanged.
