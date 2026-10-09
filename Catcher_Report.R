@@ -118,11 +118,8 @@ marks <- bind_rows(events |> mutate(kind = result),
 balls <- make_ball_polygons(located |>
   left_join(marks |> select(play_id, kind), by = "play_id") |>
   mutate(kind = replace_na(kind, "Other")))
-zone <- function() list(
-  annotate("rect", xmin = -9.97, xmax = 9.97, ymin = 18.29, ymax = 44.08,
-           fill = NA, color = "#163542", linewidth = .7),
-  annotate("rect", xmin = -8.5, xmax = 8.5, ymin = 19.76, ymax = 42.61,
-           fill = NA, color = "#73858C", linetype = "dashed", linewidth = .4))
+zone <- function() annotate("rect", xmin = -8.5, xmax = 8.5,
+  ymin = 19.76, ymax = 42.61, fill = NA, color = "#163542", linewidth = .7)
 base_theme <- theme_minimal(base_size = 9) +
   theme(panel.grid.minor = element_blank(), legend.position = "bottom",
     plot.title = element_text(face = "bold", size = 10),
@@ -142,26 +139,39 @@ p <- ggplot() + zone() +
   labs(title = "Home defense: balls drawn to scale", x = "Horizontal location (in)",
        y = "Height (in)", fill = NULL) + base_theme
 
-# Same physical coordinates for descriptive umpire bins from both halves.
+# Gaussian-weighted called-strike rate, not pitch density. Both halves of this
+# game contribute. Mask grid points with fewer than five calls within six inches.
+smooth_umpire_calls <- function(calls, grid, bandwidth = 3, min_calls = 5L) {
+  values <- lapply(seq_len(nrow(grid)), function(i) {
+    distance2 <- (calls$x_inches - grid$x[i])^2 + (calls$z_inches - grid$z[i])^2
+    weights <- exp(-distance2 / (2 * bandwidth^2))
+    nearby <- sum(distance2 <= (2 * bandwidth)^2)
+    rate <- if (nearby >= min_calls && sum(weights) > 0)
+      sum(weights * calls$called_strike) / sum(weights) else NA_real_
+    data.frame(strike_rate = rate, nearby_calls = nearby)
+  })
+  cbind(grid, bind_rows(values))
+}
 ump <- train |>
   filter(game_id == game, umpire_id %in% g$umpire_id,
          is.finite(plate_x), is.finite(plate_z)) |>
-  mutate(xb = floor(plate_x * 12 / 6) * 6 + 3,
-         zb = floor(plate_z * 12 / 6) * 6 + 3) |>
-  group_by(xb, zb) |>
-  summarise(n = n(), strike_rate = mean(pitch_result == "called_strike"), .groups = "drop")
-write_csv(ump, file.path(csv_dir, "coaching_umpire_bins.csv"))
-shown_bins <- ump |> filter(n >= 5, abs(xb) <= 15, zb >= 15, zb <= 45)
-q <- ggplot(shown_bins, aes(xb, zb)) +
-  geom_tile(aes(fill = strike_rate), width = 6, height = 6, color = "white") +
-  geom_text(aes(label = paste0(round(100 * strike_rate), "%")), size = 2.2) + zone() +
+  transmute(x_inches = plate_x * 12, z_inches = plate_z * 12,
+            called_strike = as.numeric(pitch_result == "called_strike"))
+contours <- smooth_umpire_calls(ump,
+  expand.grid(x = seq(-20, 20, by = .5), z = seq(10, 52, by = .5)))
+write_csv(contours, file.path(csv_dir, "coaching_umpire_contours.csv"))
+q <- ggplot(contours, aes(x, z)) +
+  geom_raster(aes(fill = strike_rate)) +
+  geom_contour(aes(z = strike_rate), breaks = c(.2, .4, .6, .8),
+               color = "#26796F", linewidth = .35, na.rm = TRUE) + zone() +
   scale_fill_gradient(low = "#F4F7F7", high = "#63AFA7", limits = c(0, 1),
-                      labels = scales::label_percent(), name = "Called strike",
-                      guide = guide_colorbar(title.position = "top", barwidth = grid::unit(3, "cm"), barheight = grid::unit(.15, "cm"))) +
+    na.value = "white", labels = scales::label_percent(), name = "Estimated called-strike rate",
+    guide = guide_colorbar(title.position = "top", barwidth = grid::unit(3, "cm"), barheight = grid::unit(.15, "cm"))) +
   coord_fixed(ratio = 1, xlim = c(-20, 20), ylim = c(10, 52), expand = FALSE) +
-  labs(title = "Umpire call pattern: both teams", x = "Horizontal location (in)",
+  labs(title = "Umpire call contours: both teams", x = "Horizontal location (in)",
        y = "Height (in)") + base_theme
-if (!nrow(shown_bins)) q <- q + annotate("text", x = 0, y = 30, label = "Too few calls per cell", size = 3)
+if (all(is.na(contours$strike_rate))) q <- q +
+  annotate("text", x = 0, y = 30, label = "Too few nearby calls", size = 3)
 ggsave(file.path(out, "coaching_pitch_map.png"), p, width = 5, height = 4.5, dpi = 180)
 ggsave(file.path(out, "coaching_umpire_map.png"), q, width = 5, height = 4.5, dpi = 180)
 
@@ -224,7 +234,7 @@ print(p, newpage = FALSE, vp = grid::viewport(x = .265, y = grid::unit(6.06, "in
   width = grid::unit(3.95, "inches"), height = grid::unit(2.85, "inches")))
 print(q, newpage = FALSE, vp = grid::viewport(x = .745, y = grid::unit(6.06, "inches"),
   width = grid::unit(3.95, "inches"), height = grid::unit(2.85, "inches")))
-para("2.94-in balls; solid envelope: 19.94 in wide, 18.29-44.08 in high. Dashed: 17 in wide, 19.76-42.61 in high. Green/red/gold rims: overturned/upheld/review. User-supplied reference, not verified ABS; no extra radius added. Umpire bins: n >= 5; blank means sparse.", 4.59, size = 7.5, width = 139)
+para("2.94-in balls; solid zone: 17 in wide, 19.76-42.61 in high. Green/red/gold rims: overturned/upheld/review. Contours estimate called-strike rate (20/40/60/80%), using 3-in smoothing; blank means fewer than 5 calls within 6 in. Reference zone, not verified ABS.", 4.59, size = 7.5, width = 139)
 heading("4  HIGH-LEVERAGE REVIEW & POSSIBLE MISSED OPPORTUNITIES", 4.13)
 text_at("Clip", .45, 3.87, 8, TRUE)
 text_at("Inning | count | outs | score H-A", .9, 3.87, 8, TRUE)
@@ -257,7 +267,7 @@ html <- paste0('<!doctype html><html lang="en"><meta charset="utf-8"><title>Catc
  ' team overturn rate. Challenges remaining and net run value/WPA: unavailable.</p>',
  '<h2>3. Strike-zone review</h2><img src="coaching_pitch_map.png" alt="Challenge outcomes and review candidates">',
  '<img src="coaching_umpire_map.png" alt="Observed umpire call rates in populated cells">',
- '<p class="note">Balls are 2.94 inches in diameter with equal axis scale. White = called ball; blue = called strike. Green/red/gold rims = overturned/upheld/review. Solid envelope: 19.94 inches wide, 18.29-44.08 inches high; dashed physical reference: 17 inches wide, 19.76-42.61 inches high. The outer envelope already includes the radius; do not expand it again. User-supplied reference, not verified ABS. Umpire cells require n >= 5; blank is sparse.</p>',
+ '<p class="note">Balls are 2.94 inches in diameter with equal axis scale. White = called ball; blue = called strike. Green/red/gold rims = overturned/upheld/review. One solid zone is 17 inches wide and 19.76-42.61 inches high, with no expanded or dashed outline. Umpire contours estimate called-strike rate with 3-inch Gaussian smoothing; contour levels are 20/40/60/80%. Blank regions have fewer than five calls within six inches. This is a reference zone, not verified ABS.</p>',
  '<h2>4. High-leverage review &amp; possible missed opportunities</h2><table><tr><th>Clip</th><th>Situation</th><th>Decision</th><th>Overturn estimate</th><th>Cue</th></tr>', html_rows, '</table>',
  '<p class="note">Unchallenged outcomes are unknown. Candidates exclude obvious balls/unknown locations and rank context flags before model score. No baserunners or leverage index. Upheld does not mean wasted. Probabilities estimate reversal if challenged; they are not challenge recommendations.</p>',
  '<h2>5. Coaching takeaways &amp; adjustments</h2><ul><li>', paste(takeaways, collapse = '</li><li>'), '</li></ul>',

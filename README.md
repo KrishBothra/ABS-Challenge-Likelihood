@@ -191,24 +191,16 @@ flags, then estimated reversal probability. This is a video queue, not a leverag
 index or proof of a missed strike. Actual challenges are labeled A/B; upheld calls
 are not automatically described as wasted. All pitch IDs remain in the CSV evidence.
 
-The umpire map bins calls from both halves of the selected game in 6-inch horizontal
-and 6-inch vertical cells, showing observed strike rates only with at least
-five pitches per cell. Sparse cells are blank. It is descriptive, not an inferred
-true zone. The current success model has little gain over its constant baseline;
-the report shows its actual saved holdout score and avoids strong recommendations.
-
+The umpire map shows a Gaussian-smoothed called-strike rate from both halves of
+the game, with a 3-inch bandwidth and contours at 20%, 40%, 60% and 80%. Regions
+with fewer than five calls within six inches are blank. This is a descriptive
+estimate from one game, not pitch density or a verified umpire boundary. Grid
+estimates and local counts are exported to `csv/coaching_umpire_contours.csv`.
 
 ### To-scale pitch graphics
 
-The report uses the user-supplied Pitchgrader reference: 17-inch physical width,
-19.76-42.61-inch height bounds, and a radius-expanded center envelope of 19.94 inches
-wide and 18.29-44.08 inches high. Dashed lines show the physical reference and solid
-lines show the expanded envelope. The expanded envelope already includes the radius;
-do not add it again. This universal reference is not asserted to be the game's exact ABS zone.
-
-Every pitch is a polygon with a 2.94-inch diameter in raw physical coordinates.
-Equal horizontal/vertical axis scales preserve round balls and true relative size
-when the figure is resized. White circles are called balls; blue circles are called
-strikes. Highlighted rims indicate actual overturns (green), upheld calls (red) or
-review candidates (gold). The model features, batter-specific bounds used by the
-coarse category, 4-inch-clearance rule and fitted predictions are unchanged.
+A single solid reference zone is 17 inches wide, from 19.76 to 42.61 inches high.
+There is no radius-expanded outline or dashed inner rectangle. Every ball is a
+2.94-inch-diameter polygon with equal physical axis scales. White circles are called
+balls, blue circles are called strikes; green/red/gold rims identify overturns,
+upheld calls and review candidates. Model features and predictions are unchanged.

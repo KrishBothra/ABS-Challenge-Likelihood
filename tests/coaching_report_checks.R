@@ -30,3 +30,14 @@ for (id in c("a", "b")) {
             max(abs(sqrt((z$ball_x-z$plate_x*12)^2 + (z$ball_z-z$plate_z*12)^2)-1.47)) < 1e-10)
 }
 cat("PASS: pitch polygons have 2.94-inch diameters and 1.47-inch radius in physical coordinates.\n")
+
+for (expr in parse("Catcher_Report.R")) {
+  if (is.call(expr) && identical(expr[[1]], as.name("<-")) &&
+      identical(expr[[2]], as.name("smooth_umpire_calls"))) eval(expr)
+}
+calls <- data.frame(x_inches = rep(0, 6), z_inches = rep(30, 6), called_strike = rep(c(0, 1), 3))
+surface <- smooth_umpire_calls(calls, data.frame(x = c(0, 20), z = c(30, 50)))
+stopifnot(surface$strike_rate[1] == .5, is.na(surface$strike_rate[2]))
+calls$called_strike <- 1
+stopifnot(smooth_umpire_calls(calls, data.frame(x = 0, z = 30))$strike_rate == 1)
+cat("PASS: umpire contours estimate call rates and mask unsupported locations.\n")
