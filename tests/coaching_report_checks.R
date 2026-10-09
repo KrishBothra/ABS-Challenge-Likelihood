@@ -41,3 +41,14 @@ stopifnot(surface$strike_rate[1] == .5, is.na(surface$strike_rate[2]))
 calls$called_strike <- 1
 stopifnot(smooth_umpire_calls(calls, data.frame(x = 0, z = 30))$strike_rate == 1)
 cat("PASS: umpire contours estimate call rates and mask unsupported locations.\n")
+
+for (expr in parse("Catcher_Report.R")) {
+  if (is.call(expr) && identical(expr[[1]], as.name("<-")) &&
+      identical(expr[[2]], as.name("reference_offsets"))) eval(expr)
+}
+o <- reference_offsets(data.frame(plate_x = c(0, 10/12, 0, NA), plate_z = c(30/12, 30/12, 18/12, 2)))
+stopifnot(o$reference_offset_inches[1] == 8.5, o$reference_edge[2] == "right",
+          abs(o$reference_offset_inches[2]+1.5) < 1e-10,
+          o$reference_edge[3] == "bottom", abs(o$reference_offset_inches[3]+1.76) < 1e-10,
+          is.na(o$reference_offset_inches[4]))
+cat("PASS: reference offsets retain inches, signs, limiting edges and missing coordinates.\n")

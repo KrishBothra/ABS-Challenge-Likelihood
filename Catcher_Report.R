@@ -39,12 +39,16 @@ results <- list(
 ix <- which(train$game_id == game & train$is_top_inning)
 if (!length(ix)) stop("Coaching game/home defense not found: ", game)
 g <- train[ix, , drop = FALSE]
-for (task in c("challenge", "success")) {
+for (task in c("challenge", "success", "source")) {
   r <- results[[task]]
   g[[paste0("p_", task)]] <- predict_candidate(r$validation_model,
     encode_features(features[ix, , drop = FALSE], r$encoder))
 }
 g <- g |>
+  mutate(p_source_hitting = p_source,
+    predicted_challenge_source = if_else(p_source_hitting >= .5, "hitting_team", "pitching_team"),
+    predicted_team_probability = pmax(p_source_hitting, 1-p_source_hitting),
+    high_expected_unchallenged = is_challenge == 0 & p_challenge >= .5) |>
   arrange(pa_of_game, pitch_of_pa)
 
 # -------------------------------------------------------------
@@ -65,6 +69,20 @@ select_coaching_candidates <- function(pitches, n = 3L) {
     slice_head(n = n) |>
     mutate(review_id = as.character(row_number()))
 }
+# Descriptive offsets only: never passed into the predictive models.
+reference_offsets <- function(pitches) {
+  offsets <- cbind(left = pitches$plate_x*12+8.5, right = 8.5-pitches$plate_x*12,
+    bottom = pitches$plate_z*12-19.76, top = 42.61-pitches$plate_z*12)
+  good <- apply(offsets, 1, function(x) all(is.finite(x)))
+  edge <- rep(NA_character_, nrow(pitches)); clearance <- rep(NA_real_, nrow(pitches))
+  if (any(good)) {
+    ii <- max.col(-offsets[good, , drop = FALSE], ties.method = "first")
+    edge[good] <- colnames(offsets)[ii]
+    clearance[good] <- offsets[good, , drop = FALSE][cbind(seq_along(ii), ii)]
+  }
+  data.frame(reference_edge = edge, reference_offset_inches = clearance)
+}
+g <- bind_cols(g, reference_offsets(g))
 # Use the same coarse category as the model, not a new exact-zone classifier.
 g$location_category <- features$location_category[match(g$play_id, train$play_id)]
 if (is.null(g$location_category)) stop("Rebuild features and models with location_category first.")
@@ -183,21 +201,45 @@ executive <- c(
   sprintf("Review %d unchallenged balls flagged by count/outs/score context. These are possible review opportunities, not confirmed missed strikes.", nrow(review))
 )
 insight <- "Zone feel: compare the overturned and upheld calls on video. This game's small sample does not establish a repeatable blind spot."
-context_label <- function(x) paste0("T", x$inning, " | ", x$balls, "-", x$strikes,
-                                   " | ", x$outs, " out | ", x$pre_score_home, "-", x$pre_score_away)
-log <- bind_rows(
-  events |> transmute(clip = review_id, situation = context_label(events),
-    decision = result, estimate = "Observed", cue = if_else(is_success == 1, "Compare sightline", "Review decision; not proven waste")),
-  review |> transmute(clip = review_id, situation = context_label(review),
-    decision = "No challenge", estimate = sprintf("%.0f%%", 100 * p_success),
-    cue = sub("; $", "", paste0(if_else(late_close, "Late/close; ", ""),
-                 if_else(two_outs, "2 outs; ", ""), if_else(two_strike_count, "2 strikes", ""))))
-)
+context_label <- function(x) paste0("T", x$inning, " / ", x$balls, "-", x$strikes,
+                                   " / ", x$outs, " out / ", x$pre_score_home, "-", x$pre_score_away)
+log_pitches <- bind_rows(events |> mutate(decision = result),
+                         review |> mutate(decision = "No challenge")) |>
+  arrange(pa_of_game, pitch_of_pa)
+log <- log_pitches |>
+  transmute(clip = review_id, situation = context_label(log_pitches), decision,
+    p_challenge, p_success_g_challenge = p_success,
+    predicted_challenge_source, predicted_team_probability,
+    velocity_mph = velocity, horizontal_break_inches = break_x, vertical_break_inches = break_z,
+    reference_edge, reference_offset_inches, high_expected_unchallenged)
 write_csv(log, file.path(csv_dir, "coaching_decision_log.csv"))
+flow <- g |>
+  group_by(inning) |>
+  summarise(called_pitches = n(), defensive_challenges = sum(is_challenge == 1 & challenge_source == "pitching_team", na.rm = TRUE),
+    expected_any_challenges = sum(p_challenge),
+    high_expected_unchallenged = sum(high_expected_unchallenged), .groups = "drop")
+write_csv(flow, file.path(csv_dir, "coaching_inning_flow.csv"))
+high_flags <- sum(g$high_expected_unchallenged)
+insight <- sprintf("Model check: %d unchallenged pitch(es) scored >=50%% challenge likelihood. This is a model flag, not evidence of catcher hesitation.", high_flags)
+timeline_pitches <- log_pitches |>
+  group_by(inning) |>
+  mutate(timeline_x = inning + (row_number() - (n()+1)/2) * .24) |>
+  ungroup()
+timeline <- ggplot(timeline_pitches, aes(timeline_x, 1, label = review_id)) +
+  geom_hline(yintercept = 1, color = "#CBD6D8") +
+  geom_point(aes(color = decision), size = 2.5) +
+  geom_text(aes(y = if_else(review_id == "B", 1.15, .85)), size = 2.5) +
+  scale_color_manual(values = c("Overturned" = "#007F7A", "Upheld" = "#C4513B", "No challenge" = "#BC8500")) +
+  scale_x_continuous(breaks = seq_len(max(g$inning)), limits = c(.5, max(g$inning)+.5)) +
+  coord_cartesian(ylim = c(.7, 1.3)) +
+  labs(x = "Inning (selected clips, not all pitches)", y = NULL) +
+  theme_minimal(base_size = 7) +
+  theme(axis.text.y = element_blank(), panel.grid = element_blank(), legend.position = "none",
+        plot.margin = margin(0, 0, 0, 0))
+ggsave(file.path(out, "coaching_game_flow.png"), timeline, width = 7, height = .7, dpi = 180)
 takeaways <- c(
-  "Zone judgment: review A/B and numbered clips at plate crossing. Compare ball edge and supplied zone; do not infer pitch-type blind spots without pitch classifications and more games.",
-  "Game management: discuss the count, outs and score before each decision. Check the team's challenge log before judging whether an early loss constrained late-game options.",
-  "Receiving mechanics: use video to assess sightline and glove movement. Tracking rows cannot establish framing interference or its effect on the umpire."
+  "Compare the listed speed and break on video; these are measurements, not inferred pitch types or proof of a blind spot.",
+  "The late-inning review queue is partly a result of its selection rule. It cannot establish fatigue, pressure or deteriorating judgment. Verify challenge availability and receiving mechanics on video."
 )
 
 # -------------------------------------------------------------
@@ -236,24 +278,27 @@ print(q, newpage = FALSE, vp = grid::viewport(x = .745, y = grid::unit(6.06, "in
   width = grid::unit(3.95, "inches"), height = grid::unit(2.85, "inches")))
 para("2.94-in balls; solid zone: 17 in wide, 19.76-42.61 in high. Green/red/gold rims: overturned/upheld/review. Contours estimate called-strike rate (20/40/60/80%), using 3-in smoothing; blank means fewer than 5 calls within 6 in. Reference zone, not verified ABS.", 4.59, size = 7.5, width = 139)
 heading("4  HIGH-LEVERAGE REVIEW & POSSIBLE MISSED OPPORTUNITIES", 4.13)
-text_at("Clip", .45, 3.87, 8, TRUE)
-text_at("Inning | count | outs | score H-A", .9, 3.87, 8, TRUE)
-text_at("Decision", 3.42, 3.87, 8, TRUE)
-text_at("Overturn*", 4.64, 3.87, 8, TRUE)
-text_at("Review cue", 5.62, 3.87, 8, TRUE)
-# The report is intentionally scoped to one game; keep the one-page log bounded.
+headers <- c("Clip / situation / result", "Challenge", "Overturn*", "Team*", "Speed / break H,V", "Ref. edge**")
+columns <- c(.45, 2.95, 3.72, 4.50, 5.45, 6.97)
+for (j in seq_along(headers)) text_at(headers[j], columns[j], 3.87, 7.5, TRUE)
 if (nrow(log) > 5) stop("More than five decision rows: adjust one-page layout before export.")
 for (i in seq_len(nrow(log))) {
-  y <- 3.65 - (i-1)*.21
-  text_at(log$clip[i], .45, y, 8.2, TRUE)
-  text_at(log$situation[i], .9, y, 8.2)
-  text_at(log$decision[i], 3.42, y, 8.2)
-  text_at(log$estimate[i], 4.64, y, 8.2)
-  text_at(log$cue[i], 5.62, y, 7.7)
+  y <- 3.65 - (i-1)*.27
+  text_at(paste(log$clip[i], log$situation[i]), .45, y, 7.5, TRUE)
+  text_at(log$decision[i], .45, y-.12, 6.5, color = "#526674")
+  text_at(sprintf("%.1f%%", 100*log$p_challenge[i]), 2.95, y, 8)
+  text_at(sprintf("%.0f%%", 100*log$p_success_g_challenge[i]), 3.72, y, 8)
+  text_at(paste0(ifelse(log$predicted_challenge_source[i] == "pitching_team", "Def ", "Hit "),
+                 ifelse(log$predicted_team_probability[i] > .99, ">99%", sprintf("%.0f%%", 100*log$predicted_team_probability[i]))), 4.50, y, 7.5)
+  text_at(sprintf("%.1f mph", log$velocity_mph[i]), 5.45, y, 7.5)
+  text_at(sprintf("H %+.1f / V %+.1f in", log$horizontal_break_inches[i], log$vertical_break_inches[i]), 5.45, y-.12, 6.5)
+  text_at(sprintf("%s %+.1f in", log$reference_edge[i], log$reference_offset_inches[i]), 6.97, y, 7)
 }
-para("*Estimated reversal IF challenged, not advice to challenge. Candidates exclude obvious balls/unknown locations, then rank late-close (7th+, within 2 runs), two-out and two-strike flags; model score breaks ties. No baserunner or leverage index is available. Upheld does not prove a wasted challenge.", 2.54, size = 7.5, width = 137)
-heading("5  COACHING TAKEAWAYS & ADJUSTMENTS", 1.97)
-for (i in seq_along(takeaways)) para(paste0("- ", takeaways[i]), 1.72 - (i-1)*.36, size = 8, width = 125)
+para("*Overturn and team probabilities are conditional on a challenge; Def/Hit means pitching/hitting team, not catcher/pitcher. **Ball-center offset from the most limiting reference edge: + inside, - outside; not exact ABS error. No baserunner fields or leverage index are supplied.", 2.25, size = 7.3, width = 142)
+heading("5  GAME FLOW & COACHING ADJUSTMENTS", 1.74)
+print(timeline, newpage = FALSE, vp = grid::viewport(x = .5, y = grid::unit(1.30, "inches"),
+  width = grid::unit(7.4, "inches"), height = grid::unit(.62, "inches")))
+para(paste(takeaways, collapse = " "), .91, size = 7.5, width = 140)
 para(paste("Source: supplied called-pitch data. This game was excluded from model training/tuning.", quality_note, "Catcher-specific intent is unknown."), .48, size = 7, width = 150)
 dev.off()
 
@@ -268,9 +313,9 @@ html <- paste0('<!doctype html><html lang="en"><meta charset="utf-8"><title>Catc
  '<h2>3. Strike-zone review</h2><img src="coaching_pitch_map.png" alt="Challenge outcomes and review candidates">',
  '<img src="coaching_umpire_map.png" alt="Observed umpire call rates in populated cells">',
  '<p class="note">Balls are 2.94 inches in diameter with equal axis scale. White = called ball; blue = called strike. Green/red/gold rims = overturned/upheld/review. One solid zone is 17 inches wide and 19.76-42.61 inches high, with no expanded or dashed outline. Umpire contours estimate called-strike rate with 3-inch Gaussian smoothing; contour levels are 20/40/60/80%. Blank regions have fewer than five calls within six inches. This is a reference zone, not verified ABS.</p>',
- '<h2>4. High-leverage review &amp; possible missed opportunities</h2><table><tr><th>Clip</th><th>Situation</th><th>Decision</th><th>Overturn estimate</th><th>Cue</th></tr>', html_rows, '</table>',
- '<p class="note">Unchallenged outcomes are unknown. Candidates exclude obvious balls/unknown locations and rank context flags before model score. No baserunners or leverage index. Upheld does not mean wasted. Probabilities estimate reversal if challenged; they are not challenge recommendations.</p>',
- '<h2>5. Coaching takeaways &amp; adjustments</h2><ul><li>', paste(takeaways, collapse = '</li><li>'), '</li></ul>',
+ '<h2>4. High-leverage review &amp; possible missed opportunities</h2><table><tr><th>Clip</th><th>Situation</th><th>Decision</th><th>P(challenge)</th><th>P(overturn|challenge)</th><th>Predicted team</th><th>Team probability</th><th>MPH</th><th>Break H (in)</th><th>Break V (in)</th><th>Ref edge</th><th>Center offset (in)</th><th>High expected flag</th></tr>', html_rows, '</table>',
+ '<p class="note">Unchallenged outcomes are unknown. Candidates exclude obvious balls/unknown locations and rank context flags before model score. No baserunners or leverage index. Upheld does not mean wasted. Team probabilities distinguish pitching/hitting team only. Reference offsets are descriptive, not exact ABS errors. Challenge likelihood is a model estimate, not evidence of hesitation. Probabilities are not challenge recommendations.</p>',
+ '<h2>5. Game flow &amp; coaching adjustments</h2><img style="width:100%" src="coaching_game_flow.png" alt="Selected clips by inning"><ul><li>', paste(takeaways, collapse = '</li><li>'), '</li></ul>',
  '<p class="note">Model excluded this game. ', quality_note, ' Team labels cannot identify the initiator. Allotment, run value and framing effects cannot be established from the supplied data.</p></html>')
 writeLines(html, file.path(out, "catcher_report.html"))
 cat("Saved coach-facing PDF/HTML in", out, "and supporting CSVs in", csv_dir, "\n")

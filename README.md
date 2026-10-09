@@ -204,3 +204,25 @@ There is no radius-expanded outline or dashed inner rectangle. Every ball is a
 2.94-inch-diameter polygon with equal physical axis scales. White circles are called
 balls, blue circles are called strikes; green/red/gold rims identify overturns,
 upheld calls and review candidates. Model features and predictions are unchanged.
+
+### Single-game model and tracking context
+
+The chronological decision log now includes P(challenge), P(overturn | challenge),
+predicted challenging team and its probability, velocity (mph), horizontal/vertical
+break (inches), and the most limiting signed reference-edge offset of the ball center.
+Positive offset is inside all planes; negative is outside at least one plane. This
+is a descriptive offset to the displayed reference, not an exact ABS distance or a
+new predictive feature. Team prediction means hitting team versus pitching team,
+never catcher versus pitcher. Scores use validation models that excluded this game,
+not final-model predictions that trained on it.
+
+An unchallenged pitch with P(challenge) >= 50% is a model flag only. This threshold
+is descriptive, not a league-average decision rule or proof of hesitation. The
+report exports inning-level called-pitch counts, actual defensive challenges,
+expected any-team challenges and flag counts to `csv/coaching_inning_flow.csv`.
+The visible timeline shows selected review clips and actual challenges. Selection
+favors late-close/count/outs contexts and cannot establish fatigue or causal decline.
+
+The raw train/test workbook headers and dictionary were checked: no baserunner-state
+fields are supplied. Movement/velocity measurements do not establish pitch types,
+receiving mechanics or catcher intent. Preserve these distinctions in coaching use.
