@@ -170,3 +170,59 @@ when switching feature versions; do not reuse old fitted models with new feature
 Latest holdout log loss: challenge 0.09995204, success 0.67680934, source 0.01748712.
 See `docs/location-experiments.md` for prior experiments. Those comparisons reuse
 the same holdout and are exploratory, not an untouched final test.
+
+## Coach-facing postgame report
+
+Run `Rscript Catcher_Report.R Data results csv` after tuning and building features.
+The report remains optional in `Run_All.R`. It produces a one-page letter PDF and
+matching HTML with five sections: executive summary, challenge metrics, two zone maps,
+context-prioritized decision review, and coaching adjustments. Figures and reports
+stay in `results/`; evidence, decision logs and umpire-bin tables stay in `csv/`.
+
+Defensive team challenges are distinguished from catcher-specific attribution (not
+available). Remaining challenges and run value/WPA are marked unavailable because
+allotment rules/history and baserunner/expectancy inputs are not supplied. Pitch type,
+framing interference, exact ABS geometry and midpoint tracking are not established.
+
+Numbered review candidates are unchallenged balls in the model's borderline or
+obvious-strike category. Candidates must have at least one context flag: 7th inning
+or later within two runs, two outs, or two strikes. They are ordered by number of
+flags, then estimated reversal probability. This is a video queue, not a leverage
+index or proof of a missed strike. Actual challenges are labeled A/B; upheld calls
+are not automatically described as wasted. All pitch IDs remain in the CSV evidence.
+
+The umpire map shows a Gaussian-smoothed called-strike rate from both halves of
+the game, with a 3-inch bandwidth and contours at 20%, 40%, 60% and 80%. Regions
+with fewer than five calls within six inches are blank. This is a descriptive
+estimate from one game, not pitch density or a verified umpire boundary. Grid
+estimates and local counts are exported to `csv/coaching_umpire_contours.csv`.
+
+### To-scale pitch graphics
+
+A single solid reference zone is 17 inches wide, from 19.76 to 42.61 inches high.
+There is no radius-expanded outline or dashed inner rectangle. Every ball is a
+2.94-inch-diameter polygon with equal physical axis scales. White circles are called
+balls, blue circles are called strikes; green/red/gold rims identify overturns,
+upheld calls and review candidates. Model features and predictions are unchanged.
+
+### Single-game model and tracking context
+
+The chronological decision log now includes P(challenge), P(overturn | challenge),
+predicted challenging team and its probability, velocity (mph), horizontal/vertical
+break (inches), and the most limiting signed reference-edge offset of the ball center.
+Positive offset is inside all planes; negative is outside at least one plane. This
+is a descriptive offset to the displayed reference, not an exact ABS distance or a
+new predictive feature. Team prediction means hitting team versus pitching team,
+never catcher versus pitcher. Scores use validation models that excluded this game,
+not final-model predictions that trained on it.
+
+An unchallenged pitch with P(challenge) >= 50% is a model flag only. This threshold
+is descriptive, not a league-average decision rule or proof of hesitation. The
+report exports inning-level called-pitch counts, actual defensive challenges,
+expected any-team challenges and flag counts to `csv/coaching_inning_flow.csv`.
+The visible timeline shows selected review clips and actual challenges. Selection
+favors late-close/count/outs contexts and cannot establish fatigue or causal decline.
+
+The raw train/test workbook headers and dictionary were checked: no baserunner-state
+fields are supplied. Movement/velocity measurements do not establish pitch types,
+receiving mechanics or catcher intent. Preserve these distinctions in coaching use.

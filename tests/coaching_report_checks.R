@@ -1,0 +1,54 @@
+# Load only the pure ranking function; do not render during unit tests.
+for (expr in parse("Catcher_Report.R")) {
+  if (is.call(expr) && identical(expr[[1]], as.name("<-")) &&
+      identical(expr[[2]], as.name("select_coaching_candidates"))) eval(expr)
+}
+d <- data.frame(play_id = letters[1:7], inning = c(9, 1, 9, 9, 9, 9, 1),
+  pre_score_home = 4, pre_score_away = 4, outs = c(2, 2, 2, 2, 2, 2, 0),
+  strikes = c(2, 0, 2, 2, 2, 2, 0), balls = 0,
+  is_challenge = c(0, 0, 0, 0, 1, 0, 0),
+  pitch_result = c(rep("ball", 5), "called_strike", "ball"),
+  location_category = c("borderline", "borderline", "obvious_ball", "unknown",
+                        "borderline", "borderline", "borderline"),
+  p_success = c(.2, .9, .99, .99, .99, .99, .99),
+  pa_of_game = 1:7, pitch_of_pa = 1)
+r <- select_coaching_candidates(d)
+stopifnot(identical(r$play_id, c("a", "b")), identical(r$review_id, c("1", "2")))
+stopifnot(nrow(select_coaching_candidates(d[0, ])) == 0)
+stopifnot(nrow(select_coaching_candidates(d, n = 1L)) == 1)
+cat("PASS: coaching candidates exclude challenged/strike/obvious-ball/unknown pitches and rank context before model score.\n")
+
+for (expr in parse("Catcher_Report.R")) {
+  if (is.call(expr) && identical(expr[[1]], as.name("<-")) &&
+      identical(expr[[2]], as.name("make_ball_polygons"))) eval(expr)
+}
+b <- make_ball_polygons(data.frame(play_id = c("a", "b"), plate_x = c(0, 1), plate_z = c(2, 3)))
+for (id in c("a", "b")) {
+  z <- b[b$play_id == id, ]
+  stopifnot(abs(diff(range(z$ball_x)) - 2.94) < 1e-10,
+            abs(diff(range(z$ball_z)) - 2.94) < 1e-10,
+            max(abs(sqrt((z$ball_x-z$plate_x*12)^2 + (z$ball_z-z$plate_z*12)^2)-1.47)) < 1e-10)
+}
+cat("PASS: pitch polygons have 2.94-inch diameters and 1.47-inch radius in physical coordinates.\n")
+
+for (expr in parse("Catcher_Report.R")) {
+  if (is.call(expr) && identical(expr[[1]], as.name("<-")) &&
+      identical(expr[[2]], as.name("smooth_umpire_calls"))) eval(expr)
+}
+calls <- data.frame(x_inches = rep(0, 6), z_inches = rep(30, 6), called_strike = rep(c(0, 1), 3))
+surface <- smooth_umpire_calls(calls, data.frame(x = c(0, 20), z = c(30, 50)))
+stopifnot(surface$strike_rate[1] == .5, is.na(surface$strike_rate[2]))
+calls$called_strike <- 1
+stopifnot(smooth_umpire_calls(calls, data.frame(x = 0, z = 30))$strike_rate == 1)
+cat("PASS: umpire contours estimate call rates and mask unsupported locations.\n")
+
+for (expr in parse("Catcher_Report.R")) {
+  if (is.call(expr) && identical(expr[[1]], as.name("<-")) &&
+      identical(expr[[2]], as.name("reference_offsets"))) eval(expr)
+}
+o <- reference_offsets(data.frame(plate_x = c(0, 10/12, 0, NA), plate_z = c(30/12, 30/12, 18/12, 2)))
+stopifnot(o$reference_offset_inches[1] == 8.5, o$reference_edge[2] == "right",
+          abs(o$reference_offset_inches[2]+1.5) < 1e-10,
+          o$reference_edge[3] == "bottom", abs(o$reference_offset_inches[3]+1.76) < 1e-10,
+          is.na(o$reference_offset_inches[4]))
+cat("PASS: reference offsets retain inches, signs, limiting edges and missing coordinates.\n")
