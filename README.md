@@ -170,3 +170,29 @@ when switching feature versions; do not reuse old fitted models with new feature
 Latest holdout log loss: challenge 0.09995204, success 0.67680934, source 0.01748712.
 See `docs/location-experiments.md` for prior experiments. Those comparisons reuse
 the same holdout and are exploratory, not an untouched final test.
+
+## Coach-facing postgame report
+
+Run `Rscript Catcher_Report.R Data results csv` after tuning and building features.
+The report remains optional in `Run_All.R`. It produces a one-page letter PDF and
+matching HTML with five sections: executive summary, challenge metrics, two zone maps,
+context-prioritized decision review, and coaching adjustments. Figures and reports
+stay in `results/`; evidence, decision logs and umpire-bin tables stay in `csv/`.
+
+Defensive team challenges are distinguished from catcher-specific attribution (not
+available). Remaining challenges and run value/WPA are marked unavailable because
+allotment rules/history and baserunner/expectancy inputs are not supplied. Pitch type,
+framing interference, exact ABS geometry and midpoint tracking are not established.
+
+Numbered review candidates are unchallenged balls in the model's borderline or
+obvious-strike category. Candidates must have at least one context flag: 7th inning
+or later within two runs, two outs, or two strikes. They are ordered by number of
+flags, then estimated reversal probability. This is a video queue, not a leverage
+index or proof of a missed strike. Actual challenges are labeled A/B; upheld calls
+are not automatically described as wasted. All pitch IDs remain in the CSV evidence.
+
+The umpire map bins calls from both halves of the selected game in 0.5-foot horizontal
+and 0.5-normalized-height cells, showing observed strike rates only with at least
+five pitches per cell. Sparse cells are blank. It is descriptive, not an inferred
+true zone. The current success model has little gain over its constant baseline;
+the report shows its actual saved holdout score and avoids strong recommendations.
