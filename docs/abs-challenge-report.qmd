@@ -1,5 +1,5 @@
 ---
-title: "Understanding ABS Challenges"
+title: "ABS Challenge Likelihood"
 subtitle: "Model development, feature experiments, and next steps"
 format:
   html:
@@ -15,25 +15,24 @@ execute:
   message: false
 ---
 
-::: {.callout-important}
-## Working draft — rewrite before submission
 
-The assignment requires the process explanation to be written in your own words. This AI-assisted draft is a starting point for revision and checking your understanding, not a submission-ready personal explanation.
-:::
+## Introduction
 
-A close call can change an at-bat, but recognizing a questionable call and deciding to challenge it are two different problems. A player might disagree with the umpire without requesting a review, and a challenge does not necessarily result in an overturned call. This project separates those decisions to estimate whether a pitch will be challenged, which team will initiate the challenge, and whether the challenge will succeed.
+Challenge it or let it go? Every close pitch forces that choice, and the secret sauce behind a good ABS challenge is knowing the difference between a call that looks wrong and a call that is actually wrong. A player might disagree with the umpire without ever asking for a review, and even a challenge that does get requested is no guarantee the call gets flipped.
 
-## Data and preparation
+That makes three different questions: Will the pitch be challenged? Which team will challenge it? And will the challenge succeed? This paper aims to treat them separately. Using only information available after the umpire's original call, I can estimate the probability of each outcome and show how much of that signal comes from where the pitch crossed the plate.
 
-The supplied training data contains **309,063 called pitches across 2,008 games**. Challenges occurred on approximately **2.7%** of those pitches, making challenge prediction a highly imbalanced problem. Among challenged pitches, approximately **49%** were overturned.
+## Data
 
-I first checked pitch identifiers, missing values, and the consistency of the outcome fields. Missing success labels on unchallenged pitches represent unknown outcomes, not unsuccessful challenges. Those pitches therefore contribute to the challenge-likelihood model but not to training the success or challenging-team models. The supplied workbook calls the observed success field `is_success`, although the assignment text refers to `is_successful`.
+The training data covers **309,063 called pitches across 2,008 games**. Challenges are rare, showing up on only about **2.7%** of those pitches, which makes predicting them a highly imbalanced problem. Of the pitches that were challenged, about **49%** were overturned, which is close to a coin flip.
 
-For numeric predictors, missing values were filled using medians learned from the fitting data, with additional indicators identifying missing measurements. Categorical predictors were encoded with a fallback for previously unseen categories.
+Before building anything, I checked pitch identifiers, missing values, and whether the outcome fields agreed with each other. One detail matters here: a missing success label on an unchallenged pitch means the outcome is unknown, not that a challenge failed. Those pitches help train the challenge-likelihood model, but they are left out of the success and challenging-team models. The workbook also labels the success field `is_success`, while the assignment text calls it `is_successful`.
 
-## Modeling approach
+Missing numeric values were filled with medians from the fitting data, and I added indicators to flag which measurements were missing. Categorical predictors got a fallback level for any category the model had not seen before.
 
-I developed three separate models in R:
+## Methodology
+
+I settled on three separate models in R, one for each question:
 
 | Task | Training population | Output |
 |:--|:--|:--|
@@ -41,23 +40,30 @@ I developed three separate models in R:
 | Challenging team | Challenged pitches | `challenge_source` |
 | Overturn if challenged | Challenged pitches with observed outcomes | `p_success_g_challenge` |
 
-The prediction point is after the umpire's original call but before a challenge. This makes the original ball-or-strike call an available predictor. However, the challenging-team model cannot distinguish whether a catcher or pitcher initiated a defensive challenge because the supplied labels identify only the team.
+Every model predicts at the same moment: after the umpire's original call, but before any challenge. That makes the original ball-or-strike call a fair predictor. One catch is that the challenging-team model cannot tell whether a catcher or a pitcher started a defensive challenge, since the labels only identify the team.
 
-I divided games into approximately **60% fitting, 20% tuning, and 20% evaluation groups**, reserving the coaching-report game separately. Grouping by game keeps pitches from the same game from appearing on both sides of the split. Because the supplied fields do not include dates, this evaluates generalization across games rather than future-season performance.
+Games were split into roughly **60% fitting, 20% tuning, and 20% evaluation groups**, with the coaching-report game held out separately. Splitting by game keeps pitches from the same game on one side only. Since the supplied fields do not include dates, this tests how well the models handle new games, not how they would hold up in a future season.
 
-For each target, I compared a constant-probability baseline, ridge logistic regression, and XGBoost. The challenging-team task also included a simple baseline based on the original call. Ridge penalties, tree depth, and boosting iterations were selected using tuning-set log loss. XGBoost was selected for all three targets. The selected configurations were then refitted on all available labeled observations for their respective tasks to generate **34,972 test predictions**.
+For each target, I compared a constant-probability baseline, ridge logistic regression, and XGBoost. The challenging-team task also had a simple baseline built on the original call. Ridge penalties, tree depth, and boosting iterations were picked using tuning-set log loss, and XGBoost came out on top for all three targets. Each selected configuration was then refit on all labeled observations for its task to produce **34,972 test predictions**.
 
-## Feature development
+### Model Feature Sets
 
-The current model uses count, inning, score, pitch sequence, velocity, movement, extension, handedness, and catcher, umpire, and venue information. It also includes the original umpire call and indicators for two strikes, three balls, and a potential strike-three or ball-four call.
+The model draws on count, inning, score, pitch sequence, velocity, movement, extension, handedness, and catcher, umpire, and venue information. It also includes the original umpire call, along with indicators for two strikes, three balls, and a potential strike-three or ball-four call.
 
-I explored several ways to represent pitch location. The initial version included coordinates, distances to zone boundaries, and a feature measuring disagreement between the original call and an approximate geometric classification. Subsequent experiments removed that disagreement feature, replaced detailed location with a coarse category, and removed explicit location information entirely.
+Pitch location took the most trial and error. I started with precise pitch coordinates and a buffer around the strike zone to approximate uncertainty in how players judge a pitch. However, I felt this still gave the model a level of spatial precision that players would struggle to match. I therefore experimented with a simpler location feature that distinguishes obvious calls from pitches closer to the boundary.
 
-The current version uses only a coarse location category: **obvious strike, obvious ball, borderline, or unknown**. An obvious strike requires the entire ball to clear every supplied zone edge inward by at least four inches. An obvious ball requires the same clearance beyond at least one edge. Using a 1.5-inch ball radius, this corresponds to **5.5 inches of ball-center clearance**. This is a deliberately simplified feature rule, not an exact reconstruction of ABS geometry.
+The current version uses four categories: obvious strike, obvious ball, borderline, and unknown. An obvious strike requires the entire ball to clear every supplied zone edge inward by at least four inches. An obvious ball requires the same clearance outside at least one edge. With a 1.5-inch ball radius, this means 5.5 inches of clearance from the ball’s center. All other valid locations are borderline, while missing or invalid locations are unknown.
 
-## Evaluation and results
+## Results
 
-Log loss was the primary evaluation metric because the objective is to produce useful probabilities. Accuracy alone would be misleading: predicting “no challenge” for every pitch would already be correct most of the time. I also examined Brier scores, calibration plots, and feature importance.
+Before getting into model evaluation, these are the diagnostics I am using:
+
+- **Baseline:** The log loss from predicting one constant probability for every pitch, without using any features.
+- **Log loss:** The primary metric, since my objective is to produce useful probabilities. It punishes confident predictions that turn out wrong, and lower is better.
+- **Brier score:** The average squared gap between each predicted probability and what actually happened. Lower is better here too.
+- **Calibration plots:** A check on whether predicted probabilities match how often the outcome really occurs.
+
+Accuracy alone would be misleading. Predicting "no challenge" on every pitch would already be right most of the time.
 
 ```{r}
 #| label: setup
@@ -76,7 +82,7 @@ results <- tibble::tribble(
 
 ```{r}
 #| label: tbl-current
-#| tbl-cap: "Current model versus constant baseline on the evaluation games. Scores are separate binary-task log losses, not official test-set scores."
+#| tbl-cap: "Current model vs. constant baseline on the evaluation games. Scores are separate binary-task log losses, not official test-set scores."
 current <- results |> filter(grepl("Current", version))
 baseline <- results |> filter(version == "Constant baseline")
 knitr::kable(data.frame(
@@ -86,11 +92,11 @@ knitr::kable(data.frame(
 ), digits = 5)
 ```
 
-The current challenge model improved approximately **18%** over its constant baseline. The overturn model offered only a small improvement over its baseline.
+The current challenge model beat its constant baseline by about **18%**. The overturn model showed only a small improvement.
 
 ```{r}
 #| label: fig-location-experiments
-#| fig-cap: "Removing precise location weakened challenge and especially overturn prediction. These exploratory experiments reused the same evaluation games; each panel has a separate scale. Lower is better."
+#| fig-cap: "Cutting precise location hurt challenge prediction and hit overturn prediction the hardest. These exploratory experiments reused the same evaluation games, and each panel has its own scale. Lower is better."
 #| fig-width: 10
 #| fig-height: 5
 long <- results |>
@@ -110,9 +116,9 @@ ggplot(long, aes(log_loss, version)) +
   theme(panel.grid.major.y = element_blank(), panel.grid.minor = element_blank())
 ```
 
-The feature experiments revealed an important tradeoff. With the original detailed location features, overturn log loss was **0.28464**. Removing that information substantially reduced predictive performance. The current simplified model therefore should not be presented as the strongest-performing version tested. Its results demonstrate how much information about successful challenges is contained in precise pitch location.
+The feature experiments exposed a real tradeoff. With the original detailed location features, overturn log loss was **0.28464**. Once that information was removed, performance dropped substantially. So the current simplified model is not the strongest version I tested. What it does show is how much of a successful challenge comes down to precise pitch location.
 
-Challenging-team prediction remained strong across the experiments, largely because the original call strongly identifies which team would benefit from a reversal. That task is considerably easier than determining whether a challenge will occur or succeed.
+Challenging-team prediction stayed strong in every experiment, and the reason is simple: the original call points straight to the team that would benefit from a reversal. That makes it a much easier task than predicting whether a challenge happens or succeeds.
 
 ```{r}
 #| label: fig-importance
@@ -141,26 +147,18 @@ ggplot(importance, aes(gain, reorder(feature, gain))) +
   theme(panel.grid.major.y = element_blank(), panel.grid.minor = element_blank())
 ```
 
-The coarse location category contributes approximately 66% of the challenge model's split gain. This indicates that the fitted trees rely heavily on it, but does not tell us whether a particular category increases or decreases a pitch's challenge probability. Correlated predictors can also share or redistribute importance.
+The coarse location category accounts for roughly 66% of the challenge model's split gain, so the trees lean on it heavily. Since split gain says nothing about direction, it does not reveal whether a given category raises or lowers a pitch's challenge probability. Correlated predictors can also split importance among themselves.
 
-## Limitations and future work
+## Limitations & Future Work
 
-The success model learns only from pitches players actually challenged. Those pitches are a selected subset, so applying its estimates to unchallenged pitches does not establish what their review outcomes would have been.
+A key limitation of the data is the absence of information on how individual umpires call their specific strike zones. The model includes the identity of the umpire behind the plate, but it has no information on the shape of that umpire's zone. Umpires do not all call the edges the same way, and a pitch on the border of the zone may be a routine strike for one umpire and a ball for another. 
 
-Repeated feature experiments also reused the evaluation set. Although tuning occurred separately, the resulting comparisons are exploratory; I would need a fresh evaluation sample before making strong claims about the final feature choice.
+With access to this data, I could build location features that describe where a pitch crossed the plate relative to the zone, such as whether it was high, low, or to a particular side. I could then compare those locations against how each umpire tends to call them. A pitch that is borderline in the strict sense may be a safe call in one part of the zone for a given umpire and a likely miss in another. Depending on how an umpire calls their strike zone, these tendencies could have a substantial impact on how a player decides whether to challenge. 
 
-With additional resources, I would first verify when the tracking measurements and zone bounds become available, then revisit detailed location features. Removing them is not inherently necessary to prevent leakage if they are available at the intended prediction point.
+The number of baserunners and their locations on the bases would also be valuable to include. These factors change how likely a team is to challenge a pitch in order to keep the at-bat going. A strike three or ball four with runners on base carries very different stakes than the same call with the bases empty, and a team with a runner in scoring position has more to gain from extending the at-bat. Challenge decisions are strategic, and the current model has no view of the base state to reflect that.
 
-I would also obtain dates for chronological validation, assess whether calibration improves on separate validation data, and investigate historical player and umpire tendencies using only information available before each game. Challenge availability, baserunner states, and clearer ABS geometry would help connect probability estimates to the practical value of a challenge. Together, these additions could improve both predictive performance and the usefulness of the results for coaching decisions.
+Together, umpire zone tendencies and base states would give the model a closer view of the situation a player faces when deciding whether to challenge, and could improve both challenge likelihood and overturn predictions.
 
-## Reproducing this document
 
-This document contains the recorded evaluation scores and importance values, so its figures render without access to the raw pitch files. Rendering the document does **not** retrain or reevaluate the models. The code chunks are editable and should be updated if a new model is selected.
 
-From the folder containing this file, run:
 
-```bash
-quarto render abs-challenge-report.qmd
-```
-
-Required R packages: `ggplot2`, `dplyr`, `tidyr`, `tibble`, `knitr`, and `scales`.
