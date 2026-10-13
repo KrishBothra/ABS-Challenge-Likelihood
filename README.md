@@ -170,3 +170,21 @@ when switching feature versions; do not reuse old fitted models with new feature
 Latest holdout log loss: challenge 0.09995204, success 0.67680934, source 0.01748712.
 See `docs/location-experiments.md` for prior experiments. Those comparisons reuse
 the same holdout and are exploratory, not an untouched final test.
+
+## Quarto model report
+
+[`docs/abs-challenge-report.qmd`](docs/abs-challenge-report.qmd) is an editable working draft
+covering the modeling process, evaluation, location experiments, limitations and next steps.
+It includes a log-loss comparison and the current challenge model's feature-importance chart.
+The recorded values are embedded: rendering does not train models or refresh their results.
+Update these values when the selected model changes.
+
+With Quarto and the R packages `ggplot2`, `dplyr`, `tidyr`, `tibble`, `knitr` and `scales` installed:
+
+```sh
+cd docs
+quarto render abs-challenge-report.qmd
+```
+
+This produces a self-contained HTML report beside the source. The report retains an explicit
+working-draft notice because the assignment requires the applicant's explanation in their own words.
