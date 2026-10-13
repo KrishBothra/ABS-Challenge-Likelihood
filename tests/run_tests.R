@@ -76,3 +76,5 @@ stopifnot(inherits(try(prepare_csv_dir(out), silent = TRUE), "try-error"))
 stopifnot(readLines(file.path(out, "a.csv"))[2] == "2", readLines(file.path(cs, "a.csv"))[2] == "1")
 unlink(root, recursive = TRUE)
 cat("PASS: whole-ball clearance boundaries, excluded location inputs, safe CSV migration.\n")
+
+source("tests/coaching_report_checks.R")
